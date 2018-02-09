@@ -1,0 +1,12 @@
+cd $HOME
+
+URL = ""
+FILE = "./mod_crosh"
+
+curl URL > $FILE
+chmod 755 $FILE
+
+mv /usr/bin/crosh /usr/bin/crosh.orig
+cp $FILE /usr/bin/crosh
+
+echo "Finished."
