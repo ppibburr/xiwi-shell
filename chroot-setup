@@ -1,10 +1,10 @@
 cd $HOME
 
-$URL = ""
-$FILE = "./xiwi_launcher"
+$URL = "https://raw.githubusercontent.com/ppibburr/xiwi-shell/master/xiwi-launcher"
+$FILE = "./xiwi-launcher"
 
 curl $URL > $FILE
 
 chmod 755 $FILE
 
-sduo cp $FILE /usr/bin/xiwi_launcher
+sduo cp $FILE /usr/bin/xiwi-launcher
