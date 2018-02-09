@@ -1,0 +1,202 @@
+#!/usr/bin/env ruby
+
+require 'sinatra'
+
+class Desktop
+  def self.apps
+    @apps ||= {}
+  end
+
+  attr_reader :type, :path, :exec, :icon, :name
+  def to_json *o
+    to_h.to_json
+  end
+  
+  def to_h
+    {
+      path: path,
+      type: type,
+      exec: exec,
+      icon: icon,
+      name: name,
+    }  
+  end
+  
+  def from_hash h
+    h.keys.each do |k|
+      instance_variable_set("@#{k}", h[k])
+    end
+    
+    map
+  end
+  
+  def init_desktop path
+    @path = path
+    
+    lines = open(path).read.force_encoding('utf-8')
+  
+    lines.split("\n").each do |l|
+      if l =~ /^Exec\=(.*)/
+        @exec = $1.gsub(/\%[a-zA-Z0-9]/, '').strip
+      elsif l=~/^Type\=(.*)/
+        @type = $1.downcase
+      elsif l =~ /^Icon\=(.*)/
+        if File.exists?($1)
+          @icon = $1
+        else
+          @icon = `find /usr/share/icons -name "#{$1}*" | grep 48x48/apps/`.split("\n")[0]
+          if !icon || icon.strip == ""
+            @icon = `find /usr/share/icons -name "#{$1}*"`.split("\n")[0]
+          end
+        end
+      elsif l =~ /^Name\=(.*)/
+        @name = $1
+      end
+    end
+    
+    map
+  end
+  
+  def map  
+    self.class.apps[name] = self
+  end
+  
+  def self.restore
+    @apps ||= {}
+    JSON.parse(open(LIST).read).each_pair do |name, obj|
+      app = Desktop.new
+      app.from_hash obj 
+    end
+  rescue
+    @apps = {}
+    write
+  end
+
+  def self.refresh
+    Dir.glob("/usr/share/applications/*.desktop").map do |f|
+      if !apps.find do |name, app| app.path == f end
+        app = Desktop.new
+        app.init_desktop f
+      end
+    end
+    
+    write  
+  end
+    
+  def self.write
+    File.open(LIST, 'w') do |f|
+      f.puts apps.to_json
+    end
+  end
+  
+  LIST = "#{ENV['HOME']}/.xiwi_launcher/apps.json"
+  
+  unless File.exists? LIST
+    @apps = {}
+    `mkdir -p #{File.dirname(LIST)}`
+    write
+  end
+  
+  restore
+ 
+  refresh
+end
+
+def launch e, tab: nil
+  res = ''
+  
+  Thread.new do
+    IO.popen("xiwi#{tab ? " -t" : ""} #{e}").read
+  end
+  
+  app = (Desktop.apps[e] or (Desktop.apps.find do |n, a| a.exec == e end)[1])
+
+  "<title>#{app.name}</title>"+
+  "<link rel='icon' href=http://0.0.0.0:4567/xiwi/icons/#{app.name}>"+
+  "<a href='http://0.0.0.0:4567/xiwi'><button>Dash</button></a><a href='http://0.0.0.0:4567/xiwi/#{tab ? "tab/" : ""}#{app.exec}'><button>Relaunch</button></a><br></br>#{res}"
+rescue => e
+  e.to_s
+end
+
+get "/xiwi/icons/:app" do
+  
+  icon = Desktop.apps[params[:app].gsub("%20", ' ')].icon
+  
+  if File.exist? icon
+    open(icon).read
+  end
+end
+
+get "/xiwi/tab/:app" do
+  launch params[:app], tab: true
+end
+
+get "/xiwi/:app" do
+  launch params[:app]
+end
+
+CSS = """
+<style>
+.item {
+  vertical-align:top;
+  background-color: #cecece;
+  margin:5px;
+  text-align:center;
+  max-width:150px;
+  min-width:150px;
+  height:150px;
+  max-height:150px;
+  display:inline-block;
+  border-radius:1em;
+}
+
+.item img {
+  width:80px;
+  margin-top:20px;
+}
+
+body {
+  text-align: center;
+  background-color:cadetblue;
+}
+
+
+#search {
+  border-radius:0.5em;
+  height:3.5em;
+  width:33%;
+}
+
+a {
+  color:darkblue;
+  text-decoration:none;
+}
+</style>
+"""
+
+get "/xiwi" do
+  apps = Desktop.apps.find_all do |name, app| 
+    app.type == 'application'
+  end.map do |n,a| a end
+  
+  "<title> Xiwi Launcher</title>"+
+  CSS+
+  "<link rel=icon href='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH1AYXDQ8Ej9glmgAAAJF0RVh0Q29tbWVudABEZXNrdG9wLXNpemVkIGljb24KPT09PT09PT09PT09CgooYykgMjAwNCBKYWt1YiAnamltbWFjJyBTdGVpbmVyLCAKaHR0cDovL2ppbW1hYy5tdXNpY2hhbGwuY3oKCmNyZWF0ZWQgd2l0aCB0aGUgR0lNUCwKaHR0cDovL3d3dy5naW1wLm9yZ2sCvVYAAAAGYktHRAAAAAAAAPlDu38AAAppSURBVGje7VppbBXXFf7eYj/vu02MrEjINDFIEBFXMqKS44bS1DRAqyr9Aa1SCVroBkWhxQ20gsZJIYEgoGZpBYlETGMgLGVLSytsLKQEHEDGcuzgQFIE8QJen5/fMm+m59x373jeQm2Dg6jUax1m5s52vnO+s9x5AP8f/zujkMR4CFI4FqVsY1C+reZADZqbm740CwWDOipfeZV3J5N8Ol4ATOXPnav90t1sGAZ2VO0aNQjbaJQ/cLAGdXW1D5WvVX/aOSoQIwEwdu3aiatNjcYY6DYu4/r1Gzh96v0RdRwRQKDzC/TV7IqYVRvDcmwgZ/kfxg1Ab3cHMrMfG1FH50gPYuUHjrxl8jO0tVn2Q8rrtOP8wc8femp0jhxVUkn6R1fHctJQ52wKCB49AKysoVuUNy0/7AEF8NEEQHrpUnFDTgh99ZDpBUALsEcQAFlf10NKW3lvUgkmiEeUQhABalWagxhhHrE9whRi/uvDiiq+G2Ge0EdVJq5ebcKG1zfh9u12FBUVYeLEicjKysKtW7dw8+ZNtLa2Ym75c1j5q18iPT19/GJgWPQwCgm1zex0bw+8885+/HHjJlRUVOCNNzYjMzMzLGYcDgfsdrugalNTE/a+XY1jx46OCoB9VAD0UCYa3pe0Yu8YykvRADo7u1D+7QXIycvHxYsXMW/ePLhcLgwNDcHn8yEQCFADF4SmaUJ4TJs2DStWrMChQ+9h6dKlPHXmwQDQX1AqyBJk5eW+IY51ASgyCx0/fhIv/fq3ZP1qlJSUYGBgAH6/P5QQYnhLZDk5z9dkZ2djw4YNOHjw4DfS0tJaaTrlvgBAWdgwzHQ6bH3pjQgP/OPMP1F//gPs3r1bWNbr9ZrK2Wy2mMrfa27OnDk4e/bsE0lJSTdiUd4+miAOUWc4oIUnOAYklZTwaGlpxV/fPYT169djcHAwougZo64X6loGPHnyZJw6dSrH6XTW3weFaKFB2gcNSSPlAcPiAQmGx6If/gjbtm0THOeXs3CQWhVXyv03QOpeBaK4uBhbtmyZSadeGhMApaQ1cIUngoYZvCoeduzYTVlmk6kwZxbeVxKp3L2sHglOXbtw4UJMnz79VSuVRhUDw5lG8t1QVrd6AzhB/XtpaanILKx8LOHBccFB3dPTgzt37qCvrw8ej+feRpSBHxcXh3Xr1rlo6vUxpFHDVDo8lRomdfj8Jbcfy5YtEy9Tlo8FgAOalXa73YJmDIaVZxBdXV1mOrW2MWwQFj6eNWsWcnNzF8Za0LxAcmDcloRVVViwYIFJBVaE8393d7fY5xrAaZXnJkyYIKzLAHmbl5dnUk7RTdGIt6tWrcKePXsyed1jBWDUf+zGbU8fGt6twsvf+TrszGV6mc7utTu4ZIpjzTtET7KHAoO3JFp8It48/i+ULfoFuvsG8OKzU6lluG0CYAt2dHQI5fv7+1FbW4v9+6sxdeoUNDe3YOPGjSgsLBSKU8pERkZGlOJKjhw5gsWLF/+Epv8Slle9hhuff/oZujq70fcBZazBXtEvaGQpuBKhk7X8ick0QdYbHAo10/RCT7+bsATRo2WiqbkJly9dicr5TA2VVerq6pCWmoTLH31onp85q5SsuheJiYmCUlS8opRX+0Qh3v1KVC/EXaZOpTbBlYB2dxCOQHwoWm1xsAVI2bhkuDv7kJqegkFvEMlZmfB0tFM/RPRIyEK8LR7+wHBN0GVu5ZeqwOY5BnD82KEwyv1u7cu0kL+OKVOmCJBMMcr7puIqnfLgXorG41EANI52p47kVAdKfl85Zt7/nbgplNT84piDVPGaX8778fHx97yfr1PAVeaxKq48weDUp4SwLMRho/v0cfjCppkA+GWsDCvO/GYl586di507/xx2zyuVr4lGTnlNeSuWcLaicSNGOz28srp8+fKYlokcmMKKTgcpHvKAtJR4KXObUyeP8vJyQaMZxSWYUvQkPvv839i79y0RJ+pa3kZWY7Vtb2/nx3wcBUAXMaCht7cXM2bMGLPlT5w4EXqOpJCVu2xR5i6nUR5lZWWYPXu2SKOccRgc907spdTU1DAA1oTAIM+fP8+770UD8FLRsOvigQ/ybZMzkqKBVZKTk8V5rsCqFrBibDAOcg5aXolZm79I/rOnT58+fZOmPFEAfHZ2d/C+KMQVVo10pxbeMUoArADneF7UcCvB93CcsOJseZ5nILHoE4qtIM6dO8f37om5pLTHGZQKCRpx7H4odPjwYWiUhoNaIKyHiewyGUxKSooAoxRW7YJKubHow57aunUr9+jrYwLwU4fp9WtwFT+DNWvWCOtEWVoz6KaQu62Di098Wi4cdhs6Bn1R1VN5IFbbHOtaBUKdY7rV1NRwrVgea1FvC33JNUjpIFIzCmDPehwppIywqB7Kx04H5XFfAKlJLtOy/LKAFkR+QjyG6Bxfo/m0sAW7KkiRSip6xBIFQsVCfX09Nm/ezN/4D0m9tWgKBbhz0NHd7xEPuPL+24TMgYzMLGTk5Ek3B0S15mzF6+WA14cOqsp6TxeeeWEZJuVn00P8JoWsCinAY4kttnxjYyOWL1/eTfe9RlMFJD383ZkdH+4BKoQ6ozaCaK37G75fXopvzZ0vLJiQmGRaY9A9gN6+HvipqWu8cglnLn6Cwayn0NbWiqefmkqKh2KAGi5j+/btNpXVIumiwERu1Xmm8MmTJ3l52kFAtnAXwSzmfEMyxKy3R37x18iybGkP5eXZc54jxRNQWbkOS3/8opCe7rtUSG6hr/sOeu524aszv4a7XXdgd8YRlbxIdFLn6Q0BaGhoODp//nzPvn37zAVLZGDGatjY6i0tLVi9ejXWrl3bSMdctrmAuKXiDIJfojutAHT5AcslV39s9URpeTXcA/0I+EMUycrORWpKGl2XaC4sXOFLpDoq+80rV64sofVB2ZIlS5xcwCZNmhRWmFhYac7xFy5cEKmyurr6tixW10m+ILkrpV3Sx2sFIB8WFHWAOe4d8gg6BQIaOqnjVD2K3+8V/E9OSUXeYxORkJBE9wXgMPw0TxloyIDLZlZi7qup/8aFtra2qoqKiqm0/z1awDxJXWdifn6+nasurRuM1tZW7dq1a9yPNJAclcp6pNU5dfbLY6G4or7T0sfh6vkziKO/QY2qpN+HIXI7uz6oBc3A8xHvM7NykDshnwpPAvHUK0D7qf+JUwt8mT1kbPVa3M6A9tHCxknCrScLuzgoG0u75HdA9YVSWU3OmdRRzLEGcVlV5W9qn/3uIkqjWSgofAIfNXyIgoIC/Oyny5CTJ36vIsunUa+SToEdh96eu7j2SSuB8iKFbBAk7/jteuhrdWgkyUyny5cHpTX9ljW5Q4pNHhsRX3UMeV9QKq/JfSOyHnCqeP5Bf2kverpU7b9J8k2SUpJikiKZAvmzs8uiuEO+n70RHyEuuY2T19kjP4PbLBRyyhtccj/eYhl1rXK71XPKGnaLFW0WCvgs4pU89sWyorzPiLEd1c+sVjfaLS62WRRU3or8HKNH3OOIAKG4HJD00UZSbDz+r4RtFPNGjHmbBGD9cdxKM328lOfxHxpK5oWblrgDAAAAAElFTkSuQmCC'></link>"+
+  "<datalist id=apps>"+
+  apps.map do |app| "<option value='#{app.exec}'></option>" end.join()+ 
+  "</datalist>"+
+  "<input tabindex=0 focus=true placeholder='Type to search...' type=text list=apps id=search></input><br>"+
+  apps.map do |app|
+    "<div class=item><a href=http://0.0.0.0:4567/xiwi/#{app.exec}><img src=\"/xiwi/icons/#{app.name}\"></img><br>#{app.name}</a><a href='http://0.0.0.0:4567/xiwi/tab/#{app.exec}' class=tab><br>[^]</a></div>"
+  end.join()+
+  "<script>
+  document.getElementById('search').onkeypress = function(e){
+    if (!e) e = window.event;
+    var keyCode = e.keyCode || e.which;
+    if (keyCode == '13'){
+      // Enter pressed
+      window.location = 'http://0.0.0.0:4567/xiwi/'+document.getElementById('search').value;
+      return false;
+    }
+  }</script>"
+end
