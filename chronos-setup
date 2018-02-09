@@ -1,1 +1,0 @@
-echo "sudo enter-chroot xiwi_launcher" >> $HOME/.bashrc
