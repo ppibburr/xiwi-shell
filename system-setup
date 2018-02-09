@@ -1,6 +1,6 @@
 cd $HOME
 
-URL = ""
+URL = "https://raw.githubusercontent.com/ppibburr/xiwi-shell/master/crosh"
 FILE = "./mod_crosh"
 
 curl URL > $FILE
