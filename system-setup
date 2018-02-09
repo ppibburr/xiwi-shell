@@ -1,7 +1,7 @@
 cd $HOME
 
-URL="https://raw.githubusercontent.com/ppibburr/xiwi-shell/master/crosh"
-OUT="./mod_crosh"
+export URL="https://raw.githubusercontent.com/ppibburr/xiwi-shell/master/crosh"
+export OUT="./mod_crosh"
 
 curl $URL > $OUT
 chmod 755 $OUT
