@@ -1,12 +1,12 @@
 cd $HOME
 
-URL = "https://raw.githubusercontent.com/ppibburr/xiwi-shell/master/crosh"
-FILE = "./mod_crosh"
+URL="https://raw.githubusercontent.com/ppibburr/xiwi-shell/master/crosh"
+OUT="./mod_crosh"
 
-curl URL > $FILE
-chmod 755 $FILE
+curl $URL > $OUT
+chmod 755 $OUT
 
 mv /usr/bin/crosh /usr/bin/crosh.orig
-cp $FILE /usr/bin/crosh
+cp $OUT /usr/bin/crosh
 
 echo "Finished."
