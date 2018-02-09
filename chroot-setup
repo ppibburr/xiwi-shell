@@ -1,0 +1,10 @@
+cd $HOME
+
+$URL = ""
+$FILE = "./xiwi_launcher"
+
+curl $URL > $FILE
+
+chmod 755 $FILE
+
+sduo cp $FILE /usr/bin/xiwi_launcher
